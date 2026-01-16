@@ -112,6 +112,38 @@ module ManualParser {
     return valStr.toFloat();
   }
 
+  // Helper to extract Long (64-bit) for timestamps
+  function extractLong(buffer, key) {
+    var keyStr = "\"" + key + "\":";
+    var start = buffer.find(keyStr);
+
+    if (start == null) {
+      return null;
+    }
+
+    start += keyStr.length();
+
+    if (start >= buffer.length()) {
+      return null;
+    }
+
+    var content = buffer.substring(start, buffer.length());
+    var endComma = content.find(",");
+    var endBrace = content.find("}");
+
+    var end = endComma;
+    if (end == null || (endBrace != null && endBrace < end)) {
+      end = endBrace;
+    }
+
+    if (end == null) {
+      return null;
+    }
+
+    var valStr = content.substring(0, end);
+    return valStr.toLong();
+  }
+
   // Specialized function to extract simple line value (like lineLow/lineHigh)
   // Returns the Float value from the first point [[x, VAL], ...]
   function extractLineValue(buffer, lineName) {
