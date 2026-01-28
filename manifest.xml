@@ -5,7 +5,7 @@
         Use "Monkey C: Edit Application" from the Visual Studio Code command palette
         to update the application attributes.
     -->
-    <iq:application id="a5c1d68b-9653-469b-980b-803fc8455581" type="watchface" name="@Strings.AppName" entry="GarminSugarApp" launcherIcon="@Drawables.LauncherIcon" minApiLevel="3.2.0">
+    <iq:application id="41dde447-124b-4ba8-bd00-5b3748fc1b56" type="watchface" name="@Strings.AppName" entry="GarminSugarApp" launcherIcon="@Drawables.LauncherIcon" minApiLevel="3.2.0" version="1.0.2">
         <!--
             Use the following from the Visual Studio Code comand palette to edit
             the build targets:
@@ -28,6 +28,7 @@
             <iq:product id="epix2pro42mm"/>
             <iq:product id="epix2pro47mm"/>
             <iq:product id="epix2pro51mm"/>
+            <iq:product id="fenix5splus"/>
             <iq:product id="fenix6"/>
             <iq:product id="fenix6pro"/>
             <iq:product id="fenix6s"/>
@@ -41,6 +42,10 @@
             <iq:product id="fenix7x"/>
             <iq:product id="fenix7xpro"/>
             <iq:product id="fenix7xpronowifi"/>
+            <iq:product id="fenix843mm"/>
+            <iq:product id="fenix847mm"/>
+            <iq:product id="fenix8pro47mm"/>
+            <iq:product id="fenix8solar47mm"/>
             <iq:product id="fenix8solar51mm"/>
             <iq:product id="fr165"/>
             <iq:product id="fr165m"/>
@@ -77,6 +82,11 @@
             <iq:product id="venu3"/>
             <iq:product id="venu3s"/>
             <iq:product id="venud"/>
+            <iq:product id="venusq"/>
+            <iq:product id="venusq2"/>
+            <iq:product id="venusq2m"/>
+            <iq:product id="venusqm"/>
+            <iq:product id="venux1"/>
             <iq:product id="vivoactive3m"/>
             <iq:product id="vivoactive4"/>
             <iq:product id="vivoactive4s"/>
@@ -88,6 +98,7 @@
         -->
         <iq:permissions>
             <iq:uses-permission id="Background"/>
+            <iq:uses-permission id="BluetoothLowEnergy"/>
             <iq:uses-permission id="Communications"/>
             <iq:uses-permission id="Positioning"/>
             <iq:uses-permission id="Sensor"/>
@@ -97,10 +108,7 @@
             palette to edit your compatible language list.
         -->
         <iq:languages>
-            <iq:language>deu</iq:language>
             <iq:language>eng</iq:language>
-            <iq:language>rus</iq:language>
-            <iq:language>ukr</iq:language>
         </iq:languages>
         <!--
             Use "Monkey C: Configure Monkey Barrel" from the Visual Studio Code

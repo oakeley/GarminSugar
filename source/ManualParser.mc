@@ -198,79 +198,88 @@ module ManualParser {
     var subBuf = buffer.substring(start, buffer.length());
     var allPoints = [];
 
-    // Crude iterator over objects in array
-    while (true) {
-      var nameKey = "\"name\":\"";
-      var nameIdx = subBuf.find(nameKey);
-      if (nameIdx == null) {
-        break;
-      }
+    try {
+      // Crude iterator over objects in array
+      while (subBuf != null) {
+        var nameKey = "\"name\":\"";
+        var nameIdx = subBuf.find(nameKey);
+        if (nameIdx == null) {
+          break;
+        }
 
-      // Extract name
-      var nameStart = nameIdx + nameKey.length();
-      if (nameStart >= subBuf.length()) {
-        break;
-      }
+        // Extract name
+        var nameStart = nameIdx + nameKey.length();
+        if (nameStart >= subBuf.length()) {
+          break;
+        }
 
-      var afterName = subBuf.substring(nameStart, subBuf.length());
-      var quoteEnd = afterName.find("\"");
-      if (quoteEnd == null) {
-        break;
-      }
+        var afterName = subBuf.substring(nameStart, subBuf.length());
+        if (afterName == null) {
+          break;
+        }
+        var quoteEnd = afterName.find("\"");
+        if (quoteEnd == null) {
+          break;
+        }
 
-      var lineName = afterName.substring(0, quoteEnd); // e.g. "high", "inRange", "lineLow"
+        var lineName = afterName.substring(0, quoteEnd); // e.g. "high", "inRange", "lineLow"
 
-      // Move subBuf to start of this line's points
-      var pointsKey = "\"points\":[[";
-      var pointsIdx = afterName.find(pointsKey);
+        // Move subBuf to start of this line's points
+        var pointsKey = "\"points\":[[";
+        var pointsIdx = afterName.find(pointsKey);
 
-      if (pointsIdx != null) {
-        // Check if it's a valid line (not threshold)
-        if (!lineName.equals("lineLow") && !lineName.equals("lineHigh")) {
-          var pBuf = afterName.substring(pointsIdx, afterName.length()); // starts at "points":[[
+        if (pointsIdx != null) {
+          // Check if it's a valid line (not threshold)
+          if (!lineName.equals("lineLow") && !lineName.equals("lineHigh")) {
+            var pBuf = afterName.substring(pointsIdx, afterName.length()); // starts at "points":[[
 
-          // Reuse logic
-          var closeArr = pBuf.find("]]");
-          if (closeArr != null) {
-            var dataContent = pBuf.substring(10, closeArr + 1); // content inside [[...]]
+            // Reuse logic
+            var closeArr = pBuf.find("]]");
+            if (closeArr != null) {
+              var dataContent = pBuf.substring(10, closeArr + 1); // content inside [[...]]
 
-            var parseP = dataContent;
-            while (true) {
-              var ptEnd = parseP.find("]");
-              if (ptEnd == null) {
-                break;
+              var parseP = dataContent;
+              while (parseP != null) {
+                var ptEnd = parseP.find("]");
+                if (ptEnd == null) {
+                  break;
+                }
+
+                var ptStr = parseP.substring(0, ptEnd);
+                // Clean
+                var realStart = 0;
+                var br = ptStr.find("[");
+                if (br != null) {
+                  realStart = br + 1;
+                }
+                var cleanPt = ptStr.substring(realStart, ptStr.length());
+                var comma = cleanPt.find(",");
+                if (comma != null) {
+                  var ts = cleanPt.substring(0, comma).toLong();
+                  var val = cleanPt
+                    .substring(comma + 1, cleanPt.length())
+                    .toFloat();
+                  allPoints.add([ts, val]);
+                }
+
+                // Advance
+                if (ptEnd + 1 >= parseP.length()) {
+                  parseP = null;
+                  break; // Explicit break to be safe
+                }
+                parseP = parseP.substring(ptEnd + 1, parseP.length());
               }
-
-              var ptStr = parseP.substring(0, ptEnd);
-              // Clean
-              var realStart = 0;
-              var br = ptStr.find("[");
-              if (br != null) {
-                realStart = br + 1;
-              }
-              var cleanPt = ptStr.substring(realStart, ptStr.length());
-              var comma = cleanPt.find(",");
-              if (comma != null) {
-                var ts = cleanPt.substring(0, comma).toLong();
-                var val = cleanPt
-                  .substring(comma + 1, cleanPt.length())
-                  .toFloat();
-                allPoints.add([ts, val]);
-              }
-
-              // Advance
-              if (ptEnd + 1 >= parseP.length()) {
-                break;
-              }
-              parseP = parseP.substring(ptEnd + 1, parseP.length());
             }
           }
         }
-      }
 
-      // Advance subBuf past this name to find next
-      // Use quoteEnd + 1 to move past the closing quote of name
-      subBuf = afterName.substring(quoteEnd + 1, afterName.length());
+        // Advance subBuf past this name to find next
+        // Use quoteEnd + 1 to move past the closing quote of name
+        subBuf = afterName.substring(quoteEnd + 1, afterName.length());
+      }
+    } catch (ex) {
+      // If parsing fails, just use what we have
+      System.println("Graph partial parse error: " + ex.getErrorMessage());
     }
 
     if (allPoints.size() == 0) {

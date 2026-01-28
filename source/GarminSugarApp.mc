@@ -60,8 +60,13 @@ class GarminSugarApp extends Application.AppBase {
     sgvData = data;
     if (sgvData instanceof Dictionary && sgvData.size() != 0) {
       dataChanged = Time.now().value();
-      Storage.setValue("sgvData", sgvData);
-      Storage.setValue("dataChanged", dataChanged);
+      // Explicitly use Application.Storage
+      // Try to clear old data first
+      // Application.Storage.deleteValue("sgvData"); 
+      // Application.Storage.deleteValue("dataChanged");
+      
+      Application.Storage.setValue("sgvData", sgvData);
+      Application.Storage.setValue("dataChanged", dataChanged);
     }
     wasTempEvent = true;
 

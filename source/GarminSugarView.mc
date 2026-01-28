@@ -1,7 +1,3 @@
-/* Copyright (C) 2024 Illya Byelkin
-   This program is free software: you can redistribute it and/or modify
-   it under the terms of the GNU General Public License... */
-
 import Toybox.Application;
 import Toybox.Graphics;
 import Toybox.Lang;
@@ -18,6 +14,7 @@ class GarminSugarView extends WatchUi.WatchFace {
   private var sugarView;
   private var backgroundView;
   private var sugarArrowView;
+  private var mTimeFont;
   var mFontHuge;
   var mFontLarge;
   var mFontMedium;
@@ -35,6 +32,7 @@ class GarminSugarView extends WatchUi.WatchFace {
   var centerX;
   var centerY;
   var scale;
+  var arcOffset = 0;
   private var app;
 
   function initialize() {
@@ -48,7 +46,17 @@ class GarminSugarView extends WatchUi.WatchFace {
     backgroundView = View.findDrawableById("BackgroundId") as Background;
     sugarArrowView = View.findDrawableById("SugarArrow") as Text;
 
-    mFontHuge = Graphics.FONT_NUMBER_MEDIUM;
+    // Initialize custom font
+    mTimeFont = Graphics.FONT_NUMBER_MEDIUM; // Fallback
+    try {
+        if (Rez.Fonts has :id_time_font) {
+            mTimeFont = WatchUi.loadResource(Rez.Fonts.id_time_font);
+        }
+    } catch (e) {
+        System.println("Font load error: " + e.getErrorMessage());
+    }
+    mFontHuge = mTimeFont;
+
     mFontLarge = Graphics.FONT_SYSTEM_LARGE;
     mFontMedium = Graphics.FONT_SYSTEM_MEDIUM;
     mFontSmall = Graphics.FONT_SYSTEM_XTINY;
@@ -59,6 +67,13 @@ class GarminSugarView extends WatchUi.WatchFace {
     centerX = width / 2;
     centerY = height / 2;
     scale = height / 280.0;
+
+    arcOffset = (height - width) * 2;
+    
+    if (arcOffset < 1) {
+        arcOffset = 0;
+    }
+    var settings = System.getDeviceSettings();
 
     mIconHeart = WatchUi.loadResource(Rez.Drawables.IconHeart);
     mIconStep = WatchUi.loadResource(Rez.Drawables.IconStep);
@@ -109,6 +124,7 @@ class GarminSugarView extends WatchUi.WatchFace {
         statusColor = Graphics.COLOR_RED;
         errorCode = sgvData.get("error");
       } else if (sgvData.get("bg") != null) {
+        var glucoseColor = Graphics.COLOR_WHITE;
         statusColor = Graphics.COLOR_GREEN;
 
         if (sgvData.size() != 0) {
@@ -165,6 +181,12 @@ class GarminSugarView extends WatchUi.WatchFace {
               diffMin = 0;
             }
 
+            if (diffMin > 12) {
+              glucoseColor = Graphics.COLOR_RED;
+            } else {
+              glucoseColor = Graphics.COLOR_WHITE;
+            }
+
             timeDiffStr = diffMin.format("%d") + " min";
           }
 
@@ -212,6 +234,10 @@ class GarminSugarView extends WatchUi.WatchFace {
               var val = parseToFloat(bg_info.get("val"));
               sugar = val.format("%.1f");
             }
+            sugarView.setColor(glucoseColor);
+            if (backgroundView has :mGraphColor) {
+                backgroundView.mGraphColor = glucoseColor;
+            }
             sugarView.setText(sugar);
             sugarArrowView.setText(sugarArrowStr);
           } else {
@@ -231,8 +257,8 @@ class GarminSugarView extends WatchUi.WatchFace {
     // Right: Delta (NOW DEBUGGING tSeconds)
     if (!deltaStr.equals("")) {
       dc.drawText(
-        centerX + s(40),
-        centerY - s(10),
+        centerX + s(45),
+        centerY - s(9),
         mFontSmall,
         deltaStr,
         Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER
@@ -241,7 +267,7 @@ class GarminSugarView extends WatchUi.WatchFace {
     // Left: Time Diff
     if (!timeDiffStr.equals("")) {
       dc.drawText(
-        centerX - s(40),
+        centerX - s(45),
         centerY - s(10),
         mFontSmall,
         timeDiffStr,
@@ -300,23 +326,43 @@ class GarminSugarView extends WatchUi.WatchFace {
     ]);
     var secString = now.sec.format("%02d");
 
+    var settings = System.getDeviceSettings();
+    var isAmoled = false;
+    if (settings has :requiresBurnInProtection && settings.requiresBurnInProtection) {
+        isAmoled = true;
+    }
+    
+    // Show seconds if NOT AMOLED, or if AMOLED and Awake
+    var showSeconds = !isAmoled || isAwake;
+
     dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+    
+    // Custom font loaded in onLayout
     dc.drawText(
       x - s(11),
-      y - s(106),
-      mFontHuge,
+      // y - s(106),
+      y - s(100),
+      mTimeFont, 
       timeString,
       Graphics.TEXT_JUSTIFY_CENTER
     );
-    dc.drawText(
-      x + s(50),
-      y - s(73),
-      mFontTiny,
-      secString,
-      Graphics.TEXT_JUSTIFY_LEFT
-    );
+
+    if (showSeconds) {
+        dc.drawText(
+          x + s(50),
+          y - s(73),
+          mFontTiny,
+          secString,
+          Graphics.TEXT_JUSTIFY_LEFT
+        );
+    }
 
     if (!is24Hour) {
+      // AM/PM might be hidden in AOD? Usually fine to keep, but user asked to disable "seconds box"
+      // "Can you make a plan for how to detect the screen type and disable the 1 Hz 'seconds' box for displays that don't need it"
+      // We'll keep AM/PM for now unless it causes burn-in issues (it flips every 12h, so static for long time)
+      // Actually, for burn-in, static elements are bad. But standard watch faces keep time.
+      // We will only hide seconds as requested.
       dc.drawText(
         x + s(50),
         y - s(97),
@@ -350,22 +396,34 @@ class GarminSugarView extends WatchUi.WatchFace {
   function drawQuadArcs(dc, w, h) {
     var cx = w / 2;
     var cy = h / 2;
-    var r = w / 2 - s(8);
-    var thick = s(8);
+    // Calculate Top and Bottom centers
+    var cyTop = cy - arcOffset;
+    var cyBottom = cy + arcOffset;
 
-    // 1. Steps
+    var thick = s(8);
+    var r = (w < h ? w : h) / 2 - thick;
+
+    // 1. Steps (Top Left)
     var steps = 0;
+    var stepGoal = 8000;
     var info = ActivityMonitor.getInfo();
     if (info has :steps) {
-      steps = info.steps;
+      if (info.steps != null) {
+        steps = info.steps;
+      }
+    }
+    if (info has :stepGoal) {
+      if (info.stepGoal != null && info.stepGoal > 0) {
+        stepGoal = info.stepGoal;
+      }
     }
     if (steps == null) {
       steps = 0;
     }
-    var stepPct = steps / 8000.0;
+    var stepPct = steps.toFloat() / stepGoal.toFloat();
     drawSegment(
       dc,
-      [cx, cy, r, thick],
+      [cx, cyTop, r, thick],
       175,
       135,
       stepPct,
@@ -377,13 +435,13 @@ class GarminSugarView extends WatchUi.WatchFace {
     }
     drawValue(
       dc,
-      cx - s(110),
+      cx - s(100),
       cy - s(45),
       steps.toString(),
       Graphics.TEXT_JUSTIFY_LEFT
     );
 
-    // 2. Altitude/Depth
+    // 2. Altitude/Depth (Top Right)
     var dBlue = 0x00008b;
     var valStr = "0";
     var pct = 0.0;
@@ -402,7 +460,7 @@ class GarminSugarView extends WatchUi.WatchFace {
         valStr = d.format("%.1f");
         drawSegment(
           dc,
-          [cx, cy, r, thick],
+          [cx, cyTop, r, thick],
           45,
           5,
           pct,
@@ -420,7 +478,7 @@ class GarminSugarView extends WatchUi.WatchFace {
       valStr = alt.format("%d");
       drawSegment(
         dc,
-        [cx, cy, r, thick],
+        [cx, cyTop, r, thick],
         5,
         45,
         pct,
@@ -431,14 +489,14 @@ class GarminSugarView extends WatchUi.WatchFace {
     if (mIconMountain != null) {
       dc.drawBitmap(cx + s(90), cy - s(30), mIconMountain);
     }
-    drawValue(dc, cx + s(110), cy - s(45), valStr, Graphics.TEXT_JUSTIFY_RIGHT);
+    drawValue(dc, cx + s(100), cy - s(45), valStr, Graphics.TEXT_JUSTIFY_RIGHT);
 
-    // 3. Watch Bat
+    // 3. Watch Bat (Bottom Right)
     var stats = System.getSystemStats();
     var wbPct = stats.battery / 100.0;
     drawSegment(
       dc,
-      [cx, cy, r, thick],
+      [cx, cyBottom, r, thick],
       315,
       355,
       wbPct,
@@ -446,17 +504,17 @@ class GarminSugarView extends WatchUi.WatchFace {
       Graphics.ARC_COUNTER_CLOCKWISE
     );
     if (mIconBat != null) {
-      dc.drawBitmap(cx + s(95), cy + s(5), mIconBat);
+      dc.drawBitmap(cx + s(95), cy + s(18), mIconBat);
     }
     drawValue(
       dc,
-      cx + s(110),
-      cy + s(45),
+      cx + s(100),
+      cy + s(55),
       stats.battery.format("%d"),
       Graphics.TEXT_JUSTIFY_RIGHT
     );
 
-    // 4. Phone Bat
+    // 4. Phone Bat (Bottom Left)
     var pbVal = 0;
     var sgvData = getSafeSgvData();
     if (sgvData instanceof Toybox.Lang.Dictionary) {
@@ -474,7 +532,7 @@ class GarminSugarView extends WatchUi.WatchFace {
     var lBlue = 0xadd8e6;
     drawSegment(
       dc,
-      [cx, cy, r, thick],
+      [cx, cyBottom, r, thick],
       225,
       185,
       pbPct,
@@ -482,12 +540,12 @@ class GarminSugarView extends WatchUi.WatchFace {
       Graphics.ARC_CLOCKWISE
     );
     if (mIconPhone != null) {
-      dc.drawBitmap(cx - s(123), cy + s(7), mIconPhone);
+      dc.drawBitmap(cx - s(120), cy + s(20), mIconPhone);
     }
     drawValue(
       dc,
-      cx - s(110),
-      cy + s(45),
+      cx - s(100),
+      cy + s(55),
       pbVal.format("%d"),
       Graphics.TEXT_JUSTIFY_LEFT
     );
@@ -622,10 +680,27 @@ class GarminSugarView extends WatchUi.WatchFace {
   }
 
   function onHide() as Void {}
-  function onExitSleep() as Void {}
-  function onEnterSleep() as Void {}
+
+  var isAwake = true;
+
+  function onExitSleep() as Void {
+      isAwake = true;
+      WatchUi.requestUpdate();
+  }
+
+  function onEnterSleep() as Void {
+      isAwake = false;
+      WatchUi.requestUpdate();
+  }
 
   function onPartialUpdate(dc as Dc) as Void {
+    // If AMOLED (requires burn-in protection), typically we don't do partial updates 
+    // or we shouldn't be drawing seconds in low power mode anyway.
+    var settings = System.getDeviceSettings();
+    if (settings has :requiresBurnInProtection && settings.requiresBurnInProtection) {
+        return;
+    }
+
     var now = System.getClockTime();
     var secString = now.sec.format("%02d");
     var x = centerX + s(50);

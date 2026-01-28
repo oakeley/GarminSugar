@@ -12,6 +12,7 @@ class Background extends WatchUi.Drawable {
   var lowThreshold = 3.9;
 
   var app;
+  var mGraphColor = Graphics.COLOR_WHITE;
 
   function initialize(params as Dictionary) {
     Drawable.initialize(params);
@@ -92,7 +93,7 @@ class Background extends WatchUi.Drawable {
     var width = dc.getWidth();
     var height = dc.getHeight();
 
-    var graphWidth = width * 0.6;
+    var graphWidth = width * 0.5;
     var graphHeight = height * 0.15;
     var graphLeft = (width - graphWidth) / 2;
     var graphTop = height / 2 + 20; // Position below text
@@ -175,7 +176,7 @@ class Background extends WatchUi.Drawable {
     }
 
     // 3. Draw Graph Points
-    dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
+    dc.setColor(mGraphColor, Graphics.COLOR_TRANSPARENT);
     dc.setPenWidth(1);
 
     var numPoints = graphPoints.size();
