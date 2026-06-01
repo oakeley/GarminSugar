@@ -4,18 +4,23 @@ import shutil
 
 # Base resolution (Current icons are optimized for this size)
 BASE_RES = 280.0
+ICON_SCALE_AT_BASE = 0.55
 
 # Target resolutions and their folder names
-# Format: (resolution_px, folder_suffix)
+# Format: (width, height, folder_suffix)
 TARGETS = [
-    (454, "round-454x454"),
-    (416, "round-416x416"),
-    (390, "round-390x390"),
-    (360, "round-360x360"),
-    (280, "round-280x280"), # Baseline
-    (260, "round-260x260"),
-    (240, "round-240x240"),
-    (218, "round-218x218"),
+    (454, 454, "454x454"),
+    (416, 416, "416x416"),
+    (390, 390, "390x390"),
+    (360, 360, "360x360"),
+    (280, 280, "280x280"), # Baseline
+    (260, 260, "260x260"),
+    (240, 240, "240x240"), # Covers both round and square 240
+    (448, 486, "venux1"), # Venu X1 - Force device specific folder to ensure selection
+    (218, 218, "218x218"),
+    (208, 208, "208x208"),   # fr55
+    (197, 197, "197x197"),   # fr165, fr165m
+    (176, 176, "176x176"),   # instinct2 series (6 devices)
 ]
 
 SOURCE_DIR = "/home/edward/git/watch/GarminSugar/resources"
@@ -31,18 +36,20 @@ def main():
     icon_files = [f for f in os.listdir(ICONS_DIR) if f.endswith(".png")]
     print(f"Found {len(icon_files)} icons to resize: {icon_files}")
 
-    for res, folder_suffix in TARGETS:
-        # Calculate scale factor
-        scale = res / BASE_RES
-        print(f"\nProcessing for {folder_suffix} (Scale: {scale:.2f})")
+    for width, height, folder_suffix in TARGETS:
+        # Calculate scale factor based on WIDTH only
+        scale = (width / BASE_RES) * ICON_SCALE_AT_BASE
+        print(f"\nProcessing for {folder_suffix} (Scale: {scale:.2f} = {width}/{BASE_RES} × {ICON_SCALE_AT_BASE})")
 
         # Create target directories
         target_res_dir = os.path.join(SOURCE_DIR + "-" + folder_suffix)
-        target_icons_dir = os.path.join(target_res_dir, "icons")
+
+        # Icons must live inside the drawables/ subtree — Garmin CIQ forbids
+        # path traversal (../) in drawables.xml within qualifier folders.
         target_drawables_dir = os.path.join(target_res_dir, "drawables")
+        target_icons_dir = os.path.join(target_drawables_dir, "icons")
 
         os.makedirs(target_icons_dir, exist_ok=True)
-        os.makedirs(target_drawables_dir, exist_ok=True)
 
         # 1. Resize Icons
         for icon_file in icon_files:
@@ -79,17 +86,28 @@ def main():
         except Exception as e:
             print(f"  - Failed to resize launcher_icon.png: {e}")
 
-        # 3. Key Step: Copy drawables.xml
-        # We need to copy the drawables.xml so that this specific resource qualifier folder
-        # has a definition of the drawables that points to the LOCAL icons folder.
-        # Since the original drawables.xml points to "../icons/foo.png", putting it in
-        # "resources-round-XXX/drawables/" means it will look in "resources-round-XXX/icons/",
-        # which is exactly where we put the resized icons.
+        # 3. Write drawables.xml with corrected icon paths.
+        # Base uses "../icons/" (relative to drawables/ subdir pointing up to resource root).
+        # In qualifier folders, path traversal is forbidden; icons sit at "icons/" inside drawables/.
         try:
-            shutil.copy(DRAWABLES_XML, os.path.join(target_drawables_dir, "drawables.xml"))
-            print("  - Copied drawables.xml")
+            with open(DRAWABLES_XML, "r") as f:
+                xml_content = f.read()
+            xml_content = xml_content.replace("../icons/", "icons/")
+            with open(os.path.join(target_drawables_dir, "drawables.xml"), "w") as f:
+                f.write(xml_content)
+            print("  - Wrote drawables.xml (paths normalised)")
         except Exception as e:
-            print(f"  - Failed to copy drawables.xml: {e}")
+            print(f"  - Failed to write drawables.xml: {e}")
+
+        # 4. Write Debug String
+        try:
+            target_strings_dir = os.path.join(target_res_dir, "strings")
+            os.makedirs(target_strings_dir, exist_ok=True)
+            with open(os.path.join(target_strings_dir, "debug.xml"), "w") as f:
+                f.write(f'<strings>\n    <string id="DebugResFolder">{folder_suffix}</string>\n</strings>')
+            print(f"  - Wrote debug string: {folder_suffix}")
+        except Exception as e:
+            print(f"  - Failed to write debug string: {e}")
 
 if __name__ == "__main__":
     main()

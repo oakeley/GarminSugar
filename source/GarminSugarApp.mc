@@ -57,19 +57,19 @@ class GarminSugarApp extends Application.AppBase {
   }
 
   function onBackgroundData(data) {
-    sgvData = data;
-    if (sgvData instanceof Dictionary && sgvData.size() != 0) {
+    // Only update the display and Storage when the background fetch returned
+    // real glucose data (has a "bg" key). Error responses ({"error": code})
+    // are silently discarded so the last known good graph stays visible.
+    if (data instanceof Toybox.Lang.Dictionary && data.get("bg") != null) {
+      sgvData = data;
       dataChanged = Time.now().value();
-      // Explicitly use Application.Storage
-      // Try to clear old data first
-      // Application.Storage.deleteValue("sgvData"); 
-      // Application.Storage.deleteValue("dataChanged");
-      
       Application.Storage.setValue("sgvData", sgvData);
       Application.Storage.setValue("dataChanged", dataChanged);
+      wasTempEvent = true;
     }
-    wasTempEvent = true;
 
+    // Always request a UI refresh so the clock face continues to update
+    // even when no new glucose data was received.
     WatchUi.requestUpdate();
   }
 

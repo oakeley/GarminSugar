@@ -15,11 +15,14 @@ class GarminSugarView extends WatchUi.WatchFace {
   private var backgroundView;
   private var sugarArrowView;
   private var mTimeFont;
+  private var mArrowFont;
   var mFontHuge;
   var mFontLarge;
   var mFontMedium;
-  var mFontSmall;
-  var mFontTiny;
+  var mFontSmall;    // kept as system font fallback only
+  var mFontTiny;     // kept as system font fallback only
+  var mFontSmallCustom;
+  var mFontTinyCustom;
   var mIconHeart;
   var mIconStep;
   var mIconBat;
@@ -55,12 +58,41 @@ class GarminSugarView extends WatchUi.WatchFace {
     } catch (e) {
         System.println("Font load error: " + e.getErrorMessage());
     }
+    
+    // Debug Resource Folder
+    try {
+        if (Rez.Strings has :DebugResFolder) {
+            var folderName = WatchUi.loadResource(Rez.Strings.DebugResFolder);
+            System.println(">>> ACTIVE RESOURCE FOLDER: " + folderName);
+        } else {
+            System.println(">>> ACTIVE RESOURCE FOLDER: Base/Default (No Debug String)");
+        }
+    } catch (e) {
+        System.println("Debug string load error: " + e.getErrorMessage());
+    }
+
     mFontHuge = mTimeFont;
 
     mFontLarge = Graphics.FONT_SYSTEM_LARGE;
     mFontMedium = Graphics.FONT_SYSTEM_MEDIUM;
-    mFontSmall = Graphics.FONT_SYSTEM_XTINY;
-    mFontTiny = Graphics.FONT_XTINY;
+    mFontSmall = Graphics.FONT_SYSTEM_XTINY;   // fallback
+    mFontTiny = Graphics.FONT_XTINY;           // fallback
+    mFontSmallCustom = Graphics.FONT_SYSTEM_XTINY;
+    if (Rez.Fonts has :id_small_font) {
+        try {
+            mFontSmallCustom = WatchUi.loadResource(Rez.Fonts.id_small_font);
+        } catch (e) {
+            System.println("Failed to load small font: " + e.getErrorMessage());
+        }
+    }
+    mFontTinyCustom = Graphics.FONT_XTINY;
+    if (Rez.Fonts has :id_tiny_font) {
+        try {
+            mFontTinyCustom = WatchUi.loadResource(Rez.Fonts.id_tiny_font);
+        } catch (e) {
+            System.println("Failed to load tiny font: " + e.getErrorMessage());
+        }
+    }
 
     width = dc.getWidth();
     height = dc.getHeight();
@@ -86,7 +118,18 @@ class GarminSugarView extends WatchUi.WatchFace {
     valuesGap = 20;
 
     sugarView.setFont(mFontHuge);
-    sugarArrowView.setFont(mFontMedium);
+    
+    // Load and set Arrow Font
+    mArrowFont = Graphics.FONT_SYSTEM_TINY; // Fallback
+    if (Rez.Fonts has :id_arrows_font) {
+         try {
+             mArrowFont = WatchUi.loadResource(Rez.Fonts.id_arrows_font);
+         } catch (e) {
+             System.println("Failed to load arrow font: " + e.getErrorMessage());
+         }
+    }
+    sugarArrowView.setFont(mArrowFont);
+    
     sugarView.setJustification(
       Graphics.TEXT_JUSTIFY_CENTER | Graphics.TEXT_JUSTIFY_VCENTER
     );
@@ -96,7 +139,7 @@ class GarminSugarView extends WatchUi.WatchFace {
 
     sugarView.setLocation(centerX, centerY - s(10));
     // sugarView.setFont(mFontLarge);
-    sugarArrowView.setLocation(centerX, centerY - s(10) - height * 0.1);
+    sugarArrowView.setLocation(centerX, centerY - s(12) - height * 0.1);
   }
 
   function onShow() as Void {}
@@ -259,7 +302,7 @@ class GarminSugarView extends WatchUi.WatchFace {
       dc.drawText(
         centerX + s(45),
         centerY - s(9),
-        mFontSmall,
+        mFontSmallCustom,
         deltaStr,
         Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER
       );
@@ -269,7 +312,7 @@ class GarminSugarView extends WatchUi.WatchFace {
       dc.drawText(
         centerX - s(45),
         centerY - s(10),
-        mFontSmall,
+        mFontSmallCustom,
         timeDiffStr,
         Graphics.TEXT_JUSTIFY_RIGHT | Graphics.TEXT_JUSTIFY_VCENTER
       );
@@ -284,7 +327,7 @@ class GarminSugarView extends WatchUi.WatchFace {
       dc.drawText(
         x + s(10),
         y + s(10),
-        mFontTiny,
+        mFontTinyCustom,
         errorCode.toString(),
         Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER
       );
@@ -306,7 +349,7 @@ class GarminSugarView extends WatchUi.WatchFace {
     dc.drawText(
       x + s(10),
       y - s(115),
-      mFontSmall,
+      mFontSmallCustom,
       tempStr,
       Graphics.TEXT_JUSTIFY_LEFT | Graphics.TEXT_JUSTIFY_VCENTER
     );
@@ -351,7 +394,7 @@ class GarminSugarView extends WatchUi.WatchFace {
         dc.drawText(
           x + s(50),
           y - s(73),
-          mFontTiny,
+          mFontTinyCustom,
           secString,
           Graphics.TEXT_JUSTIFY_LEFT
         );
@@ -366,7 +409,7 @@ class GarminSugarView extends WatchUi.WatchFace {
       dc.drawText(
         x + s(50),
         y - s(97),
-        mFontTiny,
+        mFontTinyCustom,
         amPm,
         Graphics.TEXT_JUSTIFY_LEFT
       );
@@ -382,7 +425,7 @@ class GarminSugarView extends WatchUi.WatchFace {
     dc.drawText(
       x,
       y + s(70),
-      mFontSmall,
+      mFontSmallCustom,
       fullDateStr,
       Graphics.TEXT_JUSTIFY_CENTER
     );
@@ -489,7 +532,7 @@ class GarminSugarView extends WatchUi.WatchFace {
     if (mIconMountain != null) {
       dc.drawBitmap(cx + s(90), cy - s(30), mIconMountain);
     }
-    drawValue(dc, cx + s(100), cy - s(45), valStr, Graphics.TEXT_JUSTIFY_RIGHT);
+    drawValue(dc, cx + s(110), cy - s(45), valStr, Graphics.TEXT_JUSTIFY_RIGHT);
 
     // 3. Watch Bat (Bottom Right)
     var stats = System.getSystemStats();
@@ -587,7 +630,7 @@ class GarminSugarView extends WatchUi.WatchFace {
 
   function drawValue(dc, x, y, text, justify) {
     dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-    dc.drawText(x, y, mFontTiny, text, justify | Graphics.TEXT_JUSTIFY_VCENTER);
+    dc.drawText(x, y, mFontTinyCustom, text, justify | Graphics.TEXT_JUSTIFY_VCENTER);
   }
 
   function drawHeartRate(dc, x, y) {
@@ -614,7 +657,7 @@ class GarminSugarView extends WatchUi.WatchFace {
     dc.drawText(
       x + s(10),
       y,
-      mFontSmall,
+      mFontSmallCustom,
       hr,
       Graphics.TEXT_JUSTIFY_VCENTER | Graphics.TEXT_JUSTIFY_LEFT
     );
@@ -711,7 +754,7 @@ class GarminSugarView extends WatchUi.WatchFace {
     dc.setColor(Graphics.COLOR_BLACK, Graphics.COLOR_BLACK);
     dc.clear();
     dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_TRANSPARENT);
-    dc.drawText(x, y, mFontTiny, secString, Graphics.TEXT_JUSTIFY_LEFT);
+    dc.drawText(x, y, mFontTinyCustom, secString, Graphics.TEXT_JUSTIFY_LEFT);
     dc.clearClip();
   }
 

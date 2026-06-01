@@ -41,7 +41,6 @@ class Background extends WatchUi.Drawable {
     // graphTop = (height / 2 + 15 - height * 0.1575).toNumber();
 
     // Extract Graph Data
-    // all_points = []
     graphPoints = new [0];
 
     if (sgvData instanceof Toybox.Lang.Dictionary) {
@@ -108,7 +107,9 @@ class Background extends WatchUi.Drawable {
       return;
     }
 
-    if (graphPoints.size() == 0) {
+    // Need at least 2 points to draw a meaningful graph;
+    // also guards against division by zero in stepX calculation below.
+    if (graphPoints.size() < 2) {
       return;
     }
 
@@ -185,21 +186,14 @@ class Background extends WatchUi.Drawable {
     var prevX = -1;
     var prevY = -1;
 
-    // Sort order is crucial. The python script sorts by timestamp descending (newest first).
-    // Usually graphs go left (old) to right (new).
-    // If the array is Newest -> Oldest, we should iterate backwards or reverse it.
-    // Let's assume input is sorted Newest [0] to Oldest [N].
-    // Actually, Python script says: "ascending=False puts the newest records first."
-    // So graphPoints[0] is NOW. graphPoints[N] is OLD.
-    // We want OLD on Left, NEW on Right.
-    // So we iterate from N-1 down to 0.
+    // graphPoints is sorted newest-first (index 0 = most recent).
+    // We want oldest on the left and newest on the right, so we
+    // iterate from the last element down to 0.
 
     for (var i = numPoints - 1; i >= 0; i--) {
       var val = graphPoints[i][1].toFloat();
 
-      // X coordinate:
-      // Index j (from 0 to N-1) where 0 is Oldest.
-      // j = (numPoints - 1) - i
+      // X coordinate: j runs 0 (leftmost/oldest) to numPoints-1 (rightmost/newest)
       var j = numPoints - 1 - i;
       var x = graphLeft + j * stepX;
 

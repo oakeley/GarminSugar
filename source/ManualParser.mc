@@ -185,141 +185,358 @@ module ManualParser {
     return valStr.substring(comma + 1, valStr.length()).toFloat();
   }
 
-  // Extract and Merge all graph lines (excluding threshold lines)
-  // Sorts points by Timestamp Ascending
+  // Extracts and merges glucose data points from "high", "inRange", and "low"
+  // segments only.  "predict" and "treatment" are silently discarded.
+  // Returns an Array of [Long ts, Float val] sorted DESCENDING (newest first)
+  // so that Background.mc's existing draw loop works unchanged.
+  // Downsamples to targetCount points when necessary.
   function extractMergedGraphPoints(buffer, targetCount) {
-    var linesKey = "\"lines\":[";
-    var start = buffer.find(linesKey);
-    if (start == null) {
-      return [];
-    }
 
-    // Limit buffer to lines array
-    var subBuf = buffer.substring(start, buffer.length());
     var allPoints = [];
 
+    var linesIdx = buffer.find("\"lines\":[");
+    if (linesIdx == null || linesIdx < 0) { return []; }
+
+    var pos  = linesIdx + 9;   // position right after the '[' of "lines":[
+    var jLen = buffer.length();
+
     try {
-      // Crude iterator over objects in array
-      while (subBuf != null) {
-        var nameKey = "\"name\":\"";
-        var nameIdx = subBuf.find(nameKey);
-        if (nameIdx == null) {
-          break;
-        }
+      while (pos < jLen) {
 
-        // Extract name
-        var nameStart = nameIdx + nameKey.length();
-        if (nameStart >= subBuf.length()) {
-          break;
-        }
+        // ---- 1. find the next segment's  "name":"xxx" ----
+        var nameKeyPos = _gsFindFrom(buffer, "\"name\":\"", pos);
+        if (nameKeyPos < 0) { break; }
 
-        var afterName = subBuf.substring(nameStart, subBuf.length());
-        if (afterName == null) {
-          break;
-        }
-        var quoteEnd = afterName.find("\"");
-        if (quoteEnd == null) {
-          break;
-        }
+        var nameStart = nameKeyPos + 8;                      // past  "name":"
+        var nameEnd   = _gsFindFrom(buffer, "\"", nameStart);
+        if (nameEnd < 0) { break; }
 
-        var lineName = afterName.substring(0, quoteEnd); // e.g. "high", "inRange", "lineLow"
+        var name = buffer.substring(nameStart, nameEnd);
 
-        // Move subBuf to start of this line's points
-        var pointsKey = "\"points\":[[";
-        var pointsIdx = afterName.find(pointsKey);
+        // ---- 2. find this segment's  "points":[[ ----
+        // Always search forward from nameEnd so we stay inside the current
+        // line object and never stray into a later segment.
+        var ptKeyPos = _gsFindFrom(buffer, "\"points\":[[", nameEnd);
+        if (ptKeyPos < 0) { break; }
 
-        if (pointsIdx != null) {
-          // Check if it's a valid line (not threshold)
-          if (!lineName.equals("lineLow") && !lineName.equals("lineHigh")) {
-            var pBuf = afterName.substring(pointsIdx, afterName.length()); // starts at "points":[[
+        // outerOpen = the '[' that opens the outer array  [[ts,v],...]
+        var outerOpen = ptKeyPos + 9;
 
-            // Reuse logic
-            var closeArr = pBuf.find("]]");
-            if (closeArr != null) {
-              var dataContent = pBuf.substring(10, closeArr + 1); // content inside [[...]]
+        // ---- 3. find ']]' that closes THIS segment's points array ----
+        // Starting 2 chars past outerOpen skips the inner '[' of the very
+        // first pair, preventing a false match on the opening '[['.
+        var ptEnd = _gsFindFrom(buffer, "]]", outerOpen + 2);
+        if (ptEnd < 0) { break; }
 
-              var parseP = dataContent;
-              while (parseP != null) {
-                var ptEnd = parseP.find("]");
-                if (ptEnd == null) {
-                  break;
-                }
+        // ---- 4. collect points only for allowed segment names ----
+        if (name.equals("high") || name.equals("inRange") || name.equals("low")) {
 
-                var ptStr = parseP.substring(0, ptEnd);
-                // Clean
-                var realStart = 0;
-                var br = ptStr.find("[");
-                if (br != null) {
-                  realStart = br + 1;
-                }
-                var cleanPt = ptStr.substring(realStart, ptStr.length());
-                var comma = cleanPt.find(",");
-                if (comma != null) {
-                  var ts = cleanPt.substring(0, comma).toLong();
-                  var val = cleanPt
-                    .substring(comma + 1, cleanPt.length())
-                    .toFloat();
-                  allPoints.add([ts, val]);
-                }
+          var innerPos = outerOpen + 1;  // skip outer '['; now at first inner '['
 
-                // Advance
-                if (ptEnd + 1 >= parseP.length()) {
-                  parseP = null;
-                  break; // Explicit break to be safe
-                }
-                parseP = parseP.substring(ptEnd + 1, parseP.length());
+          while (innerPos < jLen) {
+            var c = buffer.substring(innerPos, innerPos + 1);
+
+            if (c.equals("[")) {
+              var closePos = _gsFindFrom(buffer, "]", innerPos + 1);
+              if (closePos < 0) { break; }
+
+              var inner = buffer.substring(innerPos + 1, closePos);  // "ts,val"
+              var comma = inner.find(",");
+              if (comma != null && comma >= 0) {
+                var ts  = inner.substring(0, comma).toLong();
+                var val = inner.substring(comma + 1, inner.length()).toFloat();
+                allPoints.add([ts, val]);
               }
+              innerPos = closePos + 1;
+
+            } else if (c.equals("]")) {
+              break;   // end of outer array for this segment
+            } else {
+              innerPos++;
             }
           }
         }
+        // "predict", "treatment", "lineLow", "lineHigh", anything else → skip
 
-        // Advance subBuf past this name to find next
-        // Use quoteEnd + 1 to move past the closing quote of name
-        subBuf = afterName.substring(quoteEnd + 1, afterName.length());
+        // ---- 5. advance past ']]' before searching for next segment ----
+        pos = ptEnd + 2;
       }
     } catch (ex) {
-      // If parsing fails, just use what we have
-      System.println("Graph partial parse error: " + ex.getErrorMessage());
+      System.println("extractMergedGraphPoints error: " + ex.getErrorMessage());
     }
 
-    if (allPoints.size() == 0) {
-      return [];
-    }
+    if (allPoints.size() == 0) { return []; }
 
-    // Sort Descending (Newest First) - Selection Sort
-    for (var i = 0; i < allPoints.size() - 1; i++) {
-      var maxIdx = i; // Renamed to maxIdx for clarity
-      for (var j = i + 1; j < allPoints.size(); j++) {
-        // Compare timestamps (index 0)
-        // Using > ensures the largest (most recent) time moves to the front
+    // Sort DESCENDING by timestamp (newest first — matches Background.mc draw loop).
+    var n = allPoints.size();
+    for (var i = 0; i < n - 1; i++) {
+      var maxIdx = i;
+      for (var j = i + 1; j < n; j++) {
         if (allPoints[j][0] > allPoints[maxIdx][0]) {
           maxIdx = j;
         }
       }
       if (maxIdx != i) {
-        var temp = allPoints[i];
-        allPoints[i] = allPoints[maxIdx];
-        allPoints[maxIdx] = temp;
+        var tmp          = allPoints[i];
+        allPoints[i]     = allPoints[maxIdx];
+        allPoints[maxIdx] = tmp;
       }
     }
 
-    // Downsample
     if (allPoints.size() <= targetCount) {
       return allPoints;
     }
 
+    // Downsample with 3-point average to suppress isolated-peak artefacts.
     var result = [];
-
-    // Use (size - 1) to ensure the final index can reach the very last element
-    var step = (allPoints.size() - 1).toFloat() / (targetCount - 1);
-
+    var step   = (allPoints.size() - 1).toFloat() / (targetCount - 1);
     for (var i = 0; i < targetCount; i++) {
-      var idx = (i * step + 0.5).toNumber(); // Adding 0.5 helps with rounding to nearest index
+      var idx = (i * step + 0.5).toNumber();
       if (idx < allPoints.size()) {
-        result.add(allPoints[idx]);
+        var sumVal = allPoints[idx][1].toFloat();
+        var cnt    = 1;
+        if (idx > 0) {
+          sumVal = sumVal + allPoints[idx - 1][1].toFloat();
+          cnt    = cnt + 1;
+        }
+        if (idx < allPoints.size() - 1) {
+          sumVal = sumVal + allPoints[idx + 1][1].toFloat();
+          cnt    = cnt + 1;
+        }
+        result.add([allPoints[idx][0], sumVal / cnt.toFloat()]);
       }
     }
-
     return result;
   }
+
+  // ================================================================
+  // Preprocessing pipeline – equivalent to the bash sed/sort/tr
+  // pipeline. Call preprocessGlucoseJson() on the raw JSON blob to
+  // obtain a simple line-based string, then parse that with normal
+  // find/substring instead of a full JSON parser.
+  // ================================================================
+
+  // Internal: find 'needle' in 's' starting at absolute index 'from'.
+  // Returns absolute index, or -1 if not found.
+  function _gsFindFrom(s, needle, from) {
+    var sLen = s.length();
+    if (from >= sLen) { return -1; }
+    var rel = s.substring(from, sLen).find(needle);
+    if (rel == null || rel < 0) { return -1; }
+    return from + rel;
+  }
+
+  // Internal: extract one JSON field value by key from 'section'.
+  // Handles quoted strings, numbers, and booleans.
+  // Returns the bare value as a String, or "" if not found.
+  function _gsExtract(section, key) {
+    var needle = "\"" + key + "\":";
+    var idx = section.find(needle);
+    if (idx == null || idx < 0) { return ""; }
+    var pos  = idx + needle.length();
+    var sLen = section.length();
+    if (pos >= sLen) { return ""; }
+    var quoted = section.substring(pos, pos + 1).equals("\"");
+    if (quoted) { pos++; }
+    var end = pos;
+    while (end < sLen) {
+      var c = section.substring(end, end + 1);
+      if (quoted) {
+        if (c.equals("\"")) { break; }
+      } else {
+        if (c.equals(",") || c.equals("}")) { break; }
+      }
+      end++;
+    }
+    if (end <= pos) { return ""; }
+    return section.substring(pos, end);
+  }
+
+  // Internal: return the JSON object (WITH braces) whose opening
+  // matches keyPattern (which must end with '{').
+  // e.g. keyPattern = "\"pump\":{"  returns  {"bat":0.0,...}
+  // Only correct for flat objects (no nested braces).
+  function _gsSection(json, keyPattern) {
+    var idx = json.find(keyPattern);
+    if (idx == null || idx < 0) { return ""; }
+    var start = idx + keyPattern.length() - 1; // position of '{'
+    var end   = _gsFindFrom(json, "}", start + 1);
+    if (end < 0) { return ""; }
+    return json.substring(start, end + 1);
+  }
+
+  // Internal: append every [timestamp, value] pair from the "points"
+  // array in 'seg' to the parallel arrays ts and vs.
+  function _gsExtractDataPoints(seg, ts, vs) {
+    var pIdx = seg.find("\"points\":");
+    if (pIdx == null || pIdx < 0) { return; }
+    var pos    = pIdx + 9;
+    var segLen = seg.length();
+    // Skip outer '[' of  [[t,v],...]
+    if (pos < segLen && seg.substring(pos, pos + 1).equals("[")) { pos++; }
+    while (pos < segLen) {
+      var c = seg.substring(pos, pos + 1);
+      if (c.equals("[")) {
+        var end = _gsFindFrom(seg, "]", pos + 1);
+        if (end < 0) { break; }
+        var inner = seg.substring(pos + 1, end);
+        var comma = inner.find(",");
+        if (comma != null && comma >= 0) {
+          ts.add(inner.substring(0, comma));
+          vs.add(inner.substring(comma + 1, inner.length()));
+        }
+        pos = end + 1;
+      } else if (c.equals("]")) {
+        break;
+      } else {
+        pos++;
+      }
+    }
+  }
+
+  // Internal: return the marker points of a lineLow/lineHigh segment
+  // as a ready-to-output string:  "[t,v],[t,v]"
+  function _gsExtractLineMarker(seg) {
+    var pIdx = seg.find("\"points\":");
+    if (pIdx == null || pIdx < 0) { return ""; }
+    var pos    = pIdx + 9;
+    var segLen = seg.length();
+    if (pos < segLen && seg.substring(pos, pos + 1).equals("[")) { pos++; }
+    var result = "";
+    while (pos < segLen) {
+      var c = seg.substring(pos, pos + 1);
+      if (c.equals("[")) {
+        var end = _gsFindFrom(seg, "]", pos + 1);
+        if (end < 0) { break; }
+        if (!result.equals("")) { result += ","; }
+        result += seg.substring(pos, end + 1);
+        pos = end + 1;
+      } else if (c.equals("]")) {
+        break;
+      } else {
+        pos++;
+      }
+    }
+    return result;
+  }
+
+  // PUBLIC: preprocessGlucoseJson(json)
+  //
+  // Converts the raw CGM JSON string to a simplified line-based format.
+  // Merges all data segments (inRange / high / low) and sorts ascending
+  // by timestamp.  Call this once on the fetched response, then use
+  // plain find/substring to read each field.
+  //
+  // Output format:
+  //   graph:
+  //   [timestamp,value]    <- sorted ascending
+  //   ...
+  //   bg:delta:<v>
+  //   isHigh:<v>  isLow:<v>  isStale:<v>  time:<v>  trend:<v>  val:<v>
+  //   name:lineLow
+  //   points:[t,v],[t,v]
+  //   name:lineHigh
+  //   points:[t,v],[t,v]
+  //   start:<v>
+  //   pump:bat:<v>  iob:<v>  reservoir:<v>
+  //   status:bat:<v>  isMgdl:<v>  now:<v>
+  function preprocessGlucoseJson(json) {
+    var timestamps  = [];
+    var values      = [];
+    var lineLowPts  = "";
+    var lineHighPts = "";
+
+    var splitTok = "]},{";
+    var splitLen = 4;
+    var segStart = 0;
+    var jLen     = json.length();
+
+    while (segStart < jLen) {
+      var segEnd = _gsFindFrom(json, splitTok, segStart);
+      var isLast = (segEnd < 0);
+      if (isLast) { segEnd = jLen; }
+
+      var seg = json.substring(segStart, segEnd);
+
+      var llIdx = seg.find("lineLow");
+      var lhIdx = seg.find("lineHigh");
+      if (llIdx != null && llIdx >= 0) {
+        lineLowPts = _gsExtractLineMarker(seg);
+      } else if (lhIdx != null && lhIdx >= 0) {
+        lineHighPts = _gsExtractLineMarker(seg);
+      } else {
+        _gsExtractDataPoints(seg, timestamps, values);
+      }
+
+      if (isLast) { break; }
+      segStart = segEnd + splitLen;
+    }
+
+    // Insertion sort ascending by timestamp.
+    // Pre-compute Long values to avoid O(n^2) toLong() calls.
+    var n      = timestamps.size();
+    var tsLong = [];
+    for (var i = 0; i < n; i++) {
+      tsLong.add(timestamps[i].toLong());
+    }
+    for (var i = 1; i < n; i++) {
+      var ktl = tsLong[i];
+      var kt  = timestamps[i];
+      var kv  = values[i];
+      var j   = i - 1;
+      while (j >= 0 && tsLong[j] > ktl) {
+        tsLong[j + 1]     = tsLong[j];
+        timestamps[j + 1] = timestamps[j];
+        values[j + 1]     = values[j];
+        j--;
+      }
+      tsLong[j + 1]     = ktl;
+      timestamps[j + 1] = kt;
+      values[j + 1]     = kv;
+    }
+
+    var out = "graph:\n";
+    for (var i = 0; i < n; i++) {
+      out += "[" + timestamps[i] + "," + values[i] + "]\n";
+    }
+
+    var bg = _gsSection(json, "\"bg\":{");
+    if (!bg.equals("")) {
+      out += "bg:delta:" + _gsExtract(bg, "delta")   + "\n";
+      out += "isHigh:"   + _gsExtract(bg, "isHigh")  + "\n";
+      out += "isLow:"    + _gsExtract(bg, "isLow")   + "\n";
+      out += "isStale:"  + _gsExtract(bg, "isStale") + "\n";
+      out += "time:"     + _gsExtract(bg, "time")    + "\n";
+      out += "trend:"    + _gsExtract(bg, "trend")   + "\n";
+      out += "val:"      + _gsExtract(bg, "val")     + "\n";
+    }
+
+    if (!lineLowPts.equals("")) {
+      out += "name:lineLow\npoints:" + lineLowPts + "\n";
+    }
+    if (!lineHighPts.equals("")) {
+      out += "name:lineHigh\npoints:" + lineHighPts + "\n";
+    }
+
+    // "start" is unique in the blob - safe to search the full string.
+    var startVal = _gsExtract(json, "start");
+    if (!startVal.equals("")) { out += "start:" + startVal + "\n"; }
+
+    var pump = _gsSection(json, "\"pump\":{");
+    if (!pump.equals("")) {
+      out += "pump:bat:"  + _gsExtract(pump, "bat")       + "\n";
+      out += "iob:"       + _gsExtract(pump, "iob")       + "\n";
+      out += "reservoir:" + _gsExtract(pump, "reservoir") + "\n";
+    }
+
+    var status = _gsSection(json, "\"status\":{");
+    if (!status.equals("")) {
+      out += "status:bat:" + _gsExtract(status, "bat")    + "\n";
+      out += "isMgdl:"     + _gsExtract(status, "isMgdl") + "\n";
+      out += "now:"        + _gsExtract(status, "now")    + "\n";
+    }
+
+    return out;
+  }
+
 }
