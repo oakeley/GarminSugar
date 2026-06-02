@@ -22,6 +22,16 @@ class GarminSugarApp extends Application.AppBase {
     return sgvData;
   }
 
+  // Push live glucose from the foreground complication path. Mirrors
+  // onBackgroundData so the View + graph pick it up identically to HTTP.
+  function setLiveSgvData(data as Dictionary) as Void {
+    sgvData = data;
+    dataChanged = Time.now().value();
+    Application.Storage.setValue("sgvData", sgvData);
+    Application.Storage.setValue("dataChanged", dataChanged);
+    wasTempEvent = true;
+  }
+
   function initialize() {
     AppBase.initialize();
   }

@@ -539,4 +539,104 @@ module ManualParser {
     return out;
   }
 
+  // ----------------------------------------------------------------
+  // Convert a raw watchdrip info.json string into the SAME Dictionary
+  // shape produced by JsonTransaction.onReceive, so the foreground
+  // (complication) path and the HTTP path are interchangeable.
+  // Returns null when the string carries no usable glucose value, which
+  // the caller treats as "mini-app not serving -> keep HTTP data".
+  // ----------------------------------------------------------------
+  function infoJsonToDict(data) {
+    if (data == null || !(data instanceof Toybox.Lang.String)) {
+      return null;
+    }
+
+    var bgScope = extractScope(data, "bg");
+    if (bgScope == null) {
+      return null;
+    }
+
+    var bgVal = extractString(bgScope, "val", "\"");
+    if (bgVal == null) {
+      return null;
+    }
+
+    var trend = extractString(bgScope, "trend", "\"");
+    var delta = extractString(bgScope, "delta", "\"");
+    var time = _infoTimeSeconds(bgScope);
+    var isStale = extractPrimitive(bgScope, "isStale");
+
+    var statusScope = extractScope(data, "status");
+    var bat = null;
+    if (statusScope != null) {
+      bat = extractPrimitive(statusScope, "bat");
+    }
+    var isMgdl = extractPrimitive(data, "isMgdl");
+
+    var graphPoints = extractMergedGraphPoints(data, 60);
+    var lineLow = extractLineValue(data, "lineLow");
+    var lineHigh = extractLineValue(data, "lineHigh");
+
+    return {
+      "bg" => {
+        "val" => bgVal,
+        "trend" => trend,
+        "delta" => delta,
+        "time" => time,
+        "isStale" => isStale,
+      },
+      "status" => {
+        "bat" => bat,
+        "isMgdl" => isMgdl,
+      },
+      "graph" => {
+        "lines" => [
+          { "name" => "inRange", "points" => graphPoints },
+          { "name" => "lineLow", "points" => [[0, lineLow]] },
+          { "name" => "lineHigh", "points" => [[0, lineHigh]] },
+        ],
+      },
+    };
+  }
+
+  // Mirrors JsonTransaction.extractTimeAsSeconds: truncates a 13-digit
+  // millisecond timestamp to 10-digit seconds to avoid 32-bit overflow.
+  function _infoTimeSeconds(jsonString) {
+    var key = "\"time\"";
+    var idx = jsonString.find(key);
+    if (idx == null) {
+      return null;
+    }
+    var start = idx + key.length();
+    var valStr = "";
+    var foundDigit = false;
+    var limit = start + 30;
+    if (limit > jsonString.length()) {
+      limit = jsonString.length();
+    }
+    for (var i = start; i < limit; i++) {
+      var ch = jsonString.substring(i, i + 1);
+      var d = ("0123456789".find(ch) != null);
+      if (!foundDigit) {
+        if (d) {
+          foundDigit = true;
+          valStr = valStr + ch;
+        }
+      } else {
+        if (d) {
+          valStr = valStr + ch;
+        } else {
+          break;
+        }
+      }
+    }
+    if (valStr.length() >= 13) {
+      valStr = valStr.substring(0, valStr.length() - 3);
+    }
+    if (valStr.length() > 0) {
+      return valStr.toLong();
+    }
+    return null;
+  }
+
 }

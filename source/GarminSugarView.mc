@@ -9,6 +9,7 @@ import Toybox.WatchUi;
 import Toybox.Communications;
 import Toybox.Activity;
 import Toybox.ActivityMonitor;
+import Toybox.Complications;
 
 class GarminSugarView extends WatchUi.WatchFace {
   private var sugarView;
@@ -37,10 +38,60 @@ class GarminSugarView extends WatchUi.WatchFace {
   var scale;
   var arcOffset = 0;
   private var app;
+  
+  // Mini-app (watchdrip) complication. When present and serving glucose
+  // it overrides the HTTP data; otherwise the HTTP path is used.
+  var compId = null;
+  var compName = "CompWatchdrip";
+  var hasComp = false;
 
   function initialize() {
     WatchFace.initialize();
     app = Application.getApp();
+    setupComplication();
+  }
+
+  // Discover the watchdrip complication and subscribe to live updates.
+  // No-op on devices without the Complications API (they use HTTP only).
+  function setupComplication() {
+    hasComp = (Toybox has :Complications);
+    if (!hasComp) {
+      return;
+    }
+    try {
+      var iter = Complications.getComplications();
+      var c = iter.next();
+      while (c != null) {
+        if (c.getType() == Complications.COMPLICATION_TYPE_INVALID &&
+            c.longLabel != null && c.longLabel.equals(compName)) {
+          compId = c.complicationId;
+          Complications.subscribeToUpdates(compId);
+          Complications.registerComplicationChangeCallback(method(:compChanged));
+          ingestComplicationValue(c.value);
+          return;
+        }
+        c = iter.next();
+      }
+    } catch (ex) {
+      System.println("Complication setup error: " + ex.getErrorMessage());
+    }
+  }
+
+  // System callback when a subscribed complication's value changes.
+  function compChanged(id as Complications.Id) as Void {
+    if (compId != null && id.equals(compId)) {
+      ingestComplicationValue(Complications.getComplication(id).value);
+      WatchUi.requestUpdate();
+    }
+  }
+
+  // Parse a complication value; push it as live data only if it is valid
+  // glucose. If it does not parse, the existing HTTP data is left intact.
+  function ingestComplicationValue(value) {
+    var dict = ManualParser.infoJsonToDict(value);
+    if (dict != null) {
+      app.setLiveSgvData(dict);
+    }
   }
 
   function onLayout(dc as Dc) as Void {
