@@ -22,14 +22,45 @@ class GarminSugarApp extends Application.AppBase {
     return sgvData;
   }
 
+  // Glucose reading time (Unix seconds) carried in the dict, or 0 if absent.
+  function bgTimeOf(data) as Lang.Long {
+    if (!(data instanceof Toybox.Lang.Dictionary)) {
+      return 0l;
+    }
+    var bg = data.get("bg");
+    if (!(bg instanceof Toybox.Lang.Dictionary)) {
+      return 0l;
+    }
+    var t = bg.get("time");
+    if (t instanceof Toybox.Lang.Long) {
+      return t;
+    }
+    if (t instanceof Toybox.Lang.Number) {
+      return t.toLong();
+    }
+    return 0l;
+  }
+
+  // Adopt incoming data ONLY if its glucose reading is strictly newer than
+  // what is already displayed. Lets the complication and HTTP channels run
+  // in parallel with "newest reading wins", and stops a stale-but-repeating
+  // complication value from clobbering a fresher HTTP fetch (and vice versa).
+  function adoptIfNewer(data) {
+    if (bgTimeOf(data) > bgTimeOf(sgvData)) {
+      sgvData = data;
+      dataChanged = Time.now().value();
+      Application.Storage.setValue("sgvData", sgvData);
+      Application.Storage.setValue("dataChanged", dataChanged);
+      wasTempEvent = true;
+      return true;
+    }
+    return false;
+  }
+
   // Push live glucose from the foreground complication path. Mirrors
   // onBackgroundData so the View + graph pick it up identically to HTTP.
   function setLiveSgvData(data as Dictionary) as Void {
-    sgvData = data;
-    dataChanged = Time.now().value();
-    Application.Storage.setValue("sgvData", sgvData);
-    Application.Storage.setValue("dataChanged", dataChanged);
-    wasTempEvent = true;
+    adoptIfNewer(data);
   }
 
   function initialize() {
@@ -71,11 +102,7 @@ class GarminSugarApp extends Application.AppBase {
     // real glucose data (has a "bg" key). Error responses ({"error": code})
     // are silently discarded so the last known good graph stays visible.
     if (data instanceof Toybox.Lang.Dictionary && data.get("bg") != null) {
-      sgvData = data;
-      dataChanged = Time.now().value();
-      Application.Storage.setValue("sgvData", sgvData);
-      Application.Storage.setValue("dataChanged", dataChanged);
-      wasTempEvent = true;
+      adoptIfNewer(data);
     }
 
     // Always request a UI refresh so the clock face continues to update
