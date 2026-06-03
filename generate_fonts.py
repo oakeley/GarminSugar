@@ -8,7 +8,7 @@ FONTS_CONFIG = [
         "id": "id_time_font",
         "ttf_path": "resources/fonts/Roboto-Bold.ttf",
         "chars": "0123456789:.+- min°",
-        "px": 40,  # Large: time and glucose value
+        "px": 45,  # Large: time and glucose value
     },
     {
         "id": "id_small_font",
